@@ -214,33 +214,22 @@ impl Browser {
     fn draw(&mut self, frame: &mut Frame) {
         let [body, footer] =
             Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(frame.area());
-        let [left, right] =
-            Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
-                .areas(body);
-
-        let width = self.store.jots.len().to_string().len();
+        // A narrow column of dates; the preview pane shows the jot itself.
         let this_year = format!("{}-", Local::now().year());
-        let items: Vec<Line> = self
+        let dates: Vec<&str> = self
             .visible
             .iter()
             .map(|&i| {
-                let jot = &self.store.jots[i];
-                Line::from(vec![
-                    Span::raw(format!("{:>width$} ", i + 1)).dim(),
-                    Span::raw(format!(
-                        "{} ",
-                        jot.stamp.strip_prefix(&this_year).unwrap_or(&jot.stamp)
-                    ))
-                    .cyan(),
-                    Span::raw(jot.title()),
-                ])
+                let stamp = &self.store.jots[i].stamp;
+                stamp.strip_prefix(&this_year).unwrap_or(stamp)
             })
             .collect();
-        let project = self.store.project.file_name().map_or_else(
-            || self.store.project.display().to_string(),
-            |n| n.to_string_lossy().into_owned(),
-        );
-        let mut list_block = Block::bordered().title(format!(" {project} ").bold());
+        let column = dates.iter().map(|d| d.chars().count()).max().unwrap_or(11) as u16 + 4;
+        let [left, right] =
+            Layout::horizontal([Constraint::Length(column), Constraint::Min(1)]).areas(body);
+
+        let items: Vec<Line> = dates.into_iter().map(|d| Line::from(d).cyan()).collect();
+        let mut list_block = Block::bordered();
         if !self.filter.is_empty() {
             list_block = list_block.title_bottom(format!(" /{} ", self.filter).yellow());
         }
@@ -249,11 +238,19 @@ impl Browser {
             .highlight_style(Style::default().reversed());
         frame.render_stateful_widget(list, left, &mut self.list);
 
+        let project = self.store.project.file_name().map_or_else(
+            || self.store.project.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+
         let preview = match self.selected() {
             Some(i) => {
                 let jot = &self.store.jots[i];
                 Paragraph::new(markdown(&jot.body))
-                    .block(Block::bordered().title(format!(" #{} · {} ", i + 1, jot.stamp).bold()))
+                    .block(
+                        Block::bordered()
+                            .title(format!(" {project} · #{} · {} ", i + 1, jot.stamp).bold()),
+                    )
                     .wrap(Wrap { trim: false })
                     .scroll((self.scroll, 0))
             }
@@ -263,7 +260,8 @@ impl Browser {
                 } else {
                     " no jots match the filter"
                 };
-                Paragraph::new(msg.dim()).block(Block::bordered())
+                Paragraph::new(msg.dim())
+                    .block(Block::bordered().title(format!(" {project} ").bold()))
             }
         };
         frame.render_widget(preview, right);
