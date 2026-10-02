@@ -52,6 +52,18 @@ Empty jots are not saved.
 
 Copying uses `pbcopy`, `wl-copy`, `xclip`, `xsel` or `clip.exe`, falling back to the OSC 52 terminal escape sequence (which also works over SSH in most terminals).
 
+When its output is piped, `jotty p` prints raw markdown instead of rendering it.
+
+## Agent skill
+
+`skills/jotty` is an [Agent Skills](https://agentskills.io) skill that teaches coding agents to write and read jots with the CLI ("jot that down", "what did I note about the sync worker?"). Install jotty, then link the skill into your agent's skills folder, e.g. for Claude Code:
+
+```sh
+ln -s "$PWD/skills/jotty" ~/.claude/skills/jotty
+```
+
+Agents use the non-interactive commands only (`jotty -- <text>`, piped input, `ls`, `p`, `rm`, `all`); `b`, `e` and `open` refuse to run without a terminal.
+
 ## File format
 
 Each jot is plain markdown wrapped in timestamp markers, so the file stays readable and editable by hand (`jotty open`):

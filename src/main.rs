@@ -4,7 +4,7 @@ mod editor;
 mod store;
 
 use std::io::{self, IsTerminal, Read, Write};
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
 use anyhow::{Context, Result, bail};
 
@@ -34,7 +34,24 @@ usage:
 
 const COMMANDS: &[&str] = &["b", "ls", "p", "e", "rm", "open", "all", "path", "help"];
 
-fn main() -> Result<()> {
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        // The reader went away (`jotty ls | head -1`); nothing left to do.
+        Err(e)
+            if e.downcast_ref::<io::Error>()
+                .is_some_and(|e| e.kind() == io::ErrorKind::BrokenPipe) =>
+        {
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Error: {e:?}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let mut store = Store::for_cwd()?;
@@ -48,21 +65,33 @@ fn main() -> Result<()> {
                 .context("reading stdin")?;
             quick(&mut store, &text)
         }
-        ["b"] => browser::run(store),
+        ["b"] => {
+            require_terminal("b")?;
+            browser::run(store)
+        }
         ["ls"] => list(&store),
         ["p"] => print(&store, None),
         ["p", i] => print(&store, Some(i)),
-        ["e"] => edit(&mut store, "last"),
-        ["e", i] => edit(&mut store, i),
+        ["e"] => {
+            require_terminal("e")?;
+            edit(&mut store, "last")
+        }
+        ["e", i] => {
+            require_terminal("e")?;
+            edit(&mut store, i)
+        }
         ["rm", i] => remove(&mut store, i),
-        ["open"] => open(&store),
+        ["open"] => {
+            require_terminal("open")?;
+            open(&store)
+        }
         ["all"] => all(&store),
         ["path"] => {
-            println!("{}", store.file.display());
+            writeln!(io::stdout(), "{}", store.file.display())?;
             Ok(())
         }
         ["-h" | "--help" | "help"] => {
-            println!("{USAGE}");
+            writeln!(io::stdout(), "{USAGE}")?;
             Ok(())
         }
         ["--", text @ ..] => quick(&mut store, &text.join(" ")),
@@ -71,6 +100,14 @@ fn main() -> Result<()> {
         }
         text => quick(&mut store, &text.join(" ")),
     }
+}
+
+/// The editor and browser need a real terminal; fail fast instead of hanging in a pipe or agent shell.
+fn require_terminal(cmd: &str) -> Result<()> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        bail!("`jotty {cmd}` needs an interactive terminal");
+    }
+    Ok(())
 }
 
 fn quick(store: &mut Store, text: &str) -> Result<()> {
@@ -165,6 +202,7 @@ fn list(store: &Store) -> Result<()> {
         return Ok(());
     }
     let width = store.jots.len().to_string().len();
+    let mut out = io::stdout().lock();
     for (i, jot) in store.jots.iter().enumerate() {
         let title = jot.title();
         let preview: String = title.chars().take(70).collect();
@@ -173,7 +211,7 @@ fn list(store: &Store) -> Result<()> {
         } else {
             ""
         };
-        println!("{:>width$}  {}  {preview}{ellipsis}", i + 1, jot.stamp);
+        writeln!(out, "{:>width$}  {}  {preview}{ellipsis}", i + 1, jot.stamp)?;
     }
     Ok(())
 }
@@ -188,13 +226,19 @@ fn print(store: &Store, spec: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    let skin = termimad::MadSkin::default();
+    // Rendered for people, raw markdown for pipes (and agents).
+    let skin = io::stdout().is_terminal().then(termimad::MadSkin::default);
+    let mut out = io::stdout().lock();
     for (n, &i) in selected.iter().enumerate() {
         if n > 0 {
-            println!();
+            writeln!(out)?;
         }
         let jot = &store.jots[i];
-        skin.print_text(&format!("### #{} · {}\n\n{}\n", i + 1, jot.stamp, jot.body));
+        let text = format!("### #{} · {}\n\n{}\n", i + 1, jot.stamp, jot.body);
+        match &skin {
+            Some(skin) => skin.print_text(&text),
+            None => write!(out, "{text}")?,
+        }
     }
     Ok(())
 }
@@ -210,6 +254,7 @@ fn all(current: &Store) -> Result<()> {
         .map(|p| p.count.to_string().len())
         .max()
         .unwrap_or(1);
+    let mut out = io::stdout().lock();
     for p in projects {
         let marker = if p.file == current.file { "*" } else { " " };
         let name = match &p.project {
@@ -217,7 +262,7 @@ fn all(current: &Store) -> Result<()> {
             None => p.file.display().to_string(),
         };
         let latest = p.latest.unwrap_or_default();
-        println!("{marker} {:>width$}  {latest}  {name}", p.count);
+        writeln!(out, "{marker} {:>width$}  {latest}  {name}", p.count)?;
     }
     Ok(())
 }
