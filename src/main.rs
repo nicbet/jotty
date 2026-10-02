@@ -4,7 +4,10 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use chrono::Local;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEventKind, KeyModifiers,
+};
+use crossterm::execute;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Style, Stylize};
 use ratatui::text::Line;
@@ -154,6 +157,9 @@ fn write_jot(file: &PathBuf) -> Result<()> {
     let help = Paragraph::new(Line::from(" Esc/Ctrl+S save & quit · Ctrl+C discard ").dim());
 
     let mut terminal = ratatui::init();
+    // Deliver pastes as a single Event::Paste instead of a stream of keys, where a
+    // bare LF arrives as Ctrl+J and pasted control sequences would trigger shortcuts.
+    let _ = execute!(std::io::stdout(), EnableBracketedPaste);
     let save = loop {
         let drawn = terminal.draw(|frame| {
             let [main, footer] =
@@ -162,7 +168,7 @@ fn write_jot(file: &PathBuf) -> Result<()> {
             frame.render_widget(&help, footer);
         });
         if let Err(e) = drawn {
-            ratatui::restore();
+            restore_terminal();
             return Err(e.into());
         }
 
@@ -173,21 +179,26 @@ fn write_jot(file: &PathBuf) -> Result<()> {
                     KeyCode::Esc => break true,
                     KeyCode::Char('s') if ctrl => break true,
                     KeyCode::Char('c') if ctrl => break false,
+                    // LF from terminals without bracketed paste
+                    KeyCode::Char('j') if ctrl => textarea.insert_newline(),
                     _ => {
                         textarea.input(key);
                     }
                 }
             }
+            Ok(Event::Paste(text)) => {
+                textarea.insert_str(text.replace("\r\n", "\n").replace('\r', "\n"));
+            }
             Ok(ev) => {
                 textarea.input(ev);
             }
             Err(e) => {
-                ratatui::restore();
+                restore_terminal();
                 return Err(e.into());
             }
         }
     };
-    ratatui::restore();
+    restore_terminal();
 
     let body = textarea.lines().join("\n");
     let body = body.trim();
@@ -200,6 +211,11 @@ fn write_jot(file: &PathBuf) -> Result<()> {
         eprintln!("saved to {}", file.display());
     }
     Ok(())
+}
+
+fn restore_terminal() {
+    let _ = execute!(std::io::stdout(), DisableBracketedPaste);
+    ratatui::restore();
 }
 
 fn list(file: &PathBuf) -> Result<()> {
