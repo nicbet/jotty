@@ -42,7 +42,11 @@ jotty p 3       # jot #3 as raw markdown
 jotty p -1      # the newest jot (-2 the one before, ...)
 jotty p         # every jot; can be long, prefer `ls` then `p <i>`
 jotty all       # every project that has jots, with counts and paths
+jotty ls -g     # jots of all projects, with a project column
+jotty p -g 7    # jot #7 of that combined list
 ```
+
+Use `-g` when the user asks about notes across projects ("what did I jot this week?"). Numbers from `ls -g` only work with `-g` (`jotty p -g 7`, `jotty rm -g 7`), and numbers from plain `ls` only without it.
 
 Jot numbers are 1-based and oldest first, exactly as `jotty ls` shows them. To search, grep the output: `jotty p | grep -n -i -B2 "timeout"`.
 

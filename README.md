@@ -24,6 +24,8 @@ jotty all            list all projects that have jots
 jotty path           print the jot file path
 ```
 
+Add `-g` (`--global`) to `b`, `ls`, `p`, `e`, `rm` or `path` to work with the jots of **all** projects at once, oldest first, with the project shown next to each jot: `jotty ls -g`, `jotty b -g`, `jotty p -g -1`. Numbers then refer to that combined list. New jots always go to the current project, also when written from `jotty b -g`.
+
 `<i>` is 1-based as shown by `ls`; negative numbers count from the end, so `-1` (or `last`) is the newest jot.
 
 Quick capture takes everything after `jotty` as the jot. If it starts with a command name or a dash, put `--` in front: `jotty -- ls is broken`.

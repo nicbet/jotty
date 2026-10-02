@@ -12,6 +12,8 @@ const STAMP_FORMAT: &str = "%Y-%m-%d %H:%M";
 pub struct Jot {
     pub stamp: String,
     pub body: String,
+    /// Index into `Store::sources` of the file this jot lives in.
+    source: usize,
 }
 
 impl Jot {
@@ -25,11 +27,20 @@ impl Jot {
     }
 }
 
-/// The jots of one project, backed by a single markdown file.
+/// One jot file and the project it belongs to.
+struct Source {
+    file: PathBuf,
+    /// From the file's header; `None` for files written before headers existed.
+    project: Option<PathBuf>,
+}
+
+/// The current project's jots, or with `global` every project's, oldest first.
 pub struct Store {
-    pub file: PathBuf,
-    pub project: PathBuf,
     pub jots: Vec<Jot>,
+    pub global: bool,
+    sources: Vec<Source>,
+    /// The current project's source; new jots always go here.
+    home: usize,
 }
 
 /// Summary of one jot file, for `jotty all`.
@@ -41,32 +52,83 @@ pub struct Project {
 }
 
 impl Store {
-    /// The store for the enclosing git repository, or the current directory outside of one.
-    pub fn for_cwd() -> Result<Store> {
+    /// Jots of the enclosing git repository (or the current directory outside of one),
+    /// or of all projects when `global` is set.
+    pub fn for_cwd(global: bool) -> Result<Store> {
         let cwd = std::env::current_dir().context("cannot determine current directory")?;
         let project = project_root(&cwd);
-        let file = config_dir()?.join(format!("{}.md", kebab(&project.to_string_lossy())));
-        Store::open(file, project)
+        let dir = config_dir()?;
+        let home = dir.join(format!("{}.md", kebab(&project.to_string_lossy())));
+        let mut files = if global { jot_files(&dir)? } else { Vec::new() };
+        if !files.contains(&home) {
+            files.push(home.clone());
+        }
+        Store::load(files, &home, project, global)
     }
 
-    fn open(file: PathBuf, project: PathBuf) -> Result<Store> {
-        let jots = read(&file)?.map(|t| parse(&t).jots).unwrap_or_default();
-        Ok(Store {
-            file,
-            project,
-            jots,
-        })
+    fn load(files: Vec<PathBuf>, home: &Path, project: PathBuf, global: bool) -> Result<Store> {
+        let mut store = Store {
+            jots: Vec::new(),
+            global,
+            sources: Vec::new(),
+            home: 0,
+        };
+        for file in files {
+            let parsed = read(&file)?.map(|t| parse(&t)).unwrap_or_default();
+            let source = store.sources.len();
+            let project = if file == home {
+                store.home = source;
+                Some(project.clone())
+            } else {
+                parsed.project
+            };
+            store.sources.push(Source { file, project });
+            store
+                .jots
+                .extend(parsed.jots.into_iter().map(|jot| Jot { source, ..jot }));
+        }
+        if global {
+            // Stable, so jots from the same minute keep their order within a file.
+            store.jots.sort_by(|a, b| a.stamp.cmp(&b.stamp));
+        }
+        Ok(store)
     }
 
-    /// Append a new jot, leaving the rest of the file untouched.
-    pub fn add(&mut self, body: &str) -> Result<()> {
+    /// The current project's jot file.
+    pub fn file(&self) -> &Path {
+        &self.sources[self.home].file
+    }
+
+    /// The current project's directory.
+    pub fn project(&self) -> &Path {
+        self.sources[self.home]
+            .project
+            .as_deref()
+            .unwrap_or(Path::new(""))
+    }
+
+    /// Short name of the project jot `i` belongs to.
+    pub fn project_name(&self, i: usize) -> String {
+        let source = &self.sources[self.jots[i].source];
+        let name = match &source.project {
+            Some(project) => project.file_name(),
+            None => source.file.file_stem(),
+        };
+        name.map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    }
+
+    /// Append a new jot to the current project, leaving the rest of its file untouched.
+    /// Returns the new jot's index.
+    pub fn add(&mut self, body: &str) -> Result<usize> {
         let jot = Jot {
             stamp: Local::now().format(STAMP_FORMAT).to_string(),
             body: body.trim().to_string(),
+            source: self.home,
         };
-        let existing = read(&self.file)?.unwrap_or_default();
+        let source = &self.sources[self.home];
+        let existing = read(&source.file)?.unwrap_or_default();
         let prefix = if existing.is_empty() {
-            self.header()
+            header(source)
         } else if !existing.ends_with('\n') {
             "\n\n".to_string()
         } else if !existing.ends_with("\n\n") {
@@ -75,43 +137,59 @@ impl Store {
             String::new()
         };
 
-        self.create_dir()?;
+        create_dir(&source.file)?;
         let mut f = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&self.file)
-            .with_context(|| format!("opening {}", self.file.display()))?;
+            .open(&source.file)
+            .with_context(|| format!("opening {}", source.file.display()))?;
         write!(f, "{prefix}{}", entry(&jot))?;
         self.jots.push(jot);
-        Ok(())
+        Ok(self.jots.len() - 1)
     }
 
-    /// Rewrite the whole file from `self.jots`; removes it once the last jot is gone.
-    pub fn save(&self) -> Result<()> {
-        if self.jots.is_empty() {
-            return match fs::remove_file(&self.file) {
+    /// Replace the body of jot `i` and rewrite its file.
+    pub fn update(&mut self, i: usize, body: String) -> Result<()> {
+        self.jots[i].body = body;
+        self.save(self.jots[i].source)
+    }
+
+    /// Delete jot `i` and rewrite its file.
+    pub fn remove(&mut self, i: usize) -> Result<Jot> {
+        let jot = self.jots.remove(i);
+        self.save(jot.source)?;
+        Ok(jot)
+    }
+
+    /// Rewrite one source file from `self.jots`; removes it once its last jot is gone.
+    fn save(&self, source: usize) -> Result<()> {
+        let Source { file, .. } = &self.sources[source];
+        let mut jots = self.jots.iter().filter(|j| j.source == source).peekable();
+        if jots.peek().is_none() {
+            return match fs::remove_file(file) {
                 Err(e) if e.kind() != io::ErrorKind::NotFound => {
-                    Err(e).with_context(|| format!("removing {}", self.file.display()))
+                    Err(e).with_context(|| format!("removing {}", file.display()))
                 }
                 _ => Ok(()),
             };
         }
-        let mut text = self.header();
-        for jot in &self.jots {
+        let mut text = header(&self.sources[source]);
+        for jot in jots {
             text.push_str(&entry(jot));
         }
-        self.create_dir()?;
-        let tmp = self.file.with_extension("md.tmp");
+        create_dir(file)?;
+        let tmp = file.with_extension("md.tmp");
         fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
-        fs::rename(&tmp, &self.file).with_context(|| format!("writing {}", self.file.display()))
+        fs::rename(&tmp, file).with_context(|| format!("writing {}", file.display()))
     }
 
-    /// Make sure the file exists, e.g. before handing it to `$EDITOR`.
+    /// Make sure the current project's file exists, e.g. before handing it to `$EDITOR`.
     pub fn ensure_file(&self) -> Result<()> {
-        if !self.file.exists() {
-            self.create_dir()?;
-            fs::write(&self.file, self.header())
-                .with_context(|| format!("writing {}", self.file.display()))?;
+        let source = &self.sources[self.home];
+        if !source.file.exists() {
+            create_dir(&source.file)?;
+            fs::write(&source.file, header(source))
+                .with_context(|| format!("writing {}", source.file.display()))?;
         }
         Ok(())
     }
@@ -120,7 +198,7 @@ impl Store {
     pub fn resolve(&self, spec: &str) -> Result<usize> {
         let n = self.jots.len();
         if n == 0 {
-            bail!("no jots yet ({})", self.file.display());
+            bail!("{}", self.empty_message());
         }
         let index = match spec {
             "last" => Some(n - 1),
@@ -136,32 +214,51 @@ impl Store {
             .with_context(|| format!("no jot {spec} (there are {n})"))
     }
 
-    fn header(&self) -> String {
-        format!("<!-- {HEADER_PREFIX} {} -->\n\n", self.project.display())
-    }
-
-    fn create_dir(&self) -> Result<()> {
-        if let Some(dir) = self.file.parent() {
-            fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    pub fn empty_message(&self) -> String {
+        if self.global {
+            "no jots anywhere yet".into()
+        } else {
+            format!("no jots yet ({})", self.file().display())
         }
-        Ok(())
     }
 }
 
-/// All projects with jots, most recently jotted first.
-pub fn projects() -> Result<Vec<Project>> {
-    let dir = config_dir()?;
-    let entries = match fs::read_dir(&dir) {
+fn header(source: &Source) -> String {
+    match &source.project {
+        Some(project) => format!("<!-- {HEADER_PREFIX} {} -->\n\n", project.display()),
+        None => String::new(),
+    }
+}
+
+fn create_dir(file: &Path) -> Result<()> {
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    }
+    Ok(())
+}
+
+/// The `*.md` jot files in `dir`, sorted by name.
+fn jot_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
     };
-    let mut projects = Vec::new();
+    let mut files = Vec::new();
     for entry in entries {
         let file = entry?.path();
-        if file.extension().is_none_or(|ext| ext != "md") {
-            continue;
+        if file.extension().is_some_and(|ext| ext == "md") {
+            files.push(file);
         }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// All projects with jots, most recently jotted first.
+pub fn projects() -> Result<Vec<Project>> {
+    let mut projects = Vec::new();
+    for file in jot_files(&config_dir()?)? {
         let Some(text) = read(&file)? else { continue };
         let parsed = parse(&text);
         if parsed.jots.is_empty() {
@@ -179,7 +276,7 @@ pub fn projects() -> Result<Vec<Project>> {
 }
 
 /// `$XDG_CONFIG_HOME/jotty`, defaulting to `~/.config/jotty`.
-fn config_dir() -> Result<PathBuf> {
+pub fn config_dir() -> Result<PathBuf> {
     let config = match std::env::var_os("XDG_CONFIG_HOME") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => {
@@ -223,6 +320,7 @@ fn read(file: &Path) -> Result<Option<String>> {
     }
 }
 
+#[derive(Default)]
 struct Parsed {
     project: Option<PathBuf>,
     jots: Vec<Jot>,
@@ -249,6 +347,7 @@ fn parse(text: &str) -> Parsed {
                 current = Some(Jot {
                     stamp: inner.to_string(),
                     body: String::new(),
+                    source: 0,
                 });
             }
         }
@@ -287,32 +386,70 @@ mod tests {
         assert_eq!(kebab("/"), "-");
     }
 
+    fn bodies(store: &Store) -> Vec<&str> {
+        store.jots.iter().map(|j| j.body.as_str()).collect()
+    }
+
     #[test]
-    fn add_save_and_reload() {
+    fn add_update_remove_and_reload() {
         let dir = temp_dir("store");
         let file = dir.join("t.md");
-        let mut store = Store::open(file.clone(), PathBuf::from("/some/project")).unwrap();
-        store.add("first\n\n- a\n- b\n").unwrap();
+        let project = PathBuf::from("/some/project");
+        let open = || Store::load(vec![file.clone()], &file, project.clone(), false).unwrap();
+        let mut store = open();
+        assert_eq!(store.add("first\n\n- a\n- b\n").unwrap(), 0);
         store.add("second").unwrap();
-        store.add("third").unwrap();
+        assert_eq!(store.add("third").unwrap(), 2);
 
         let text = fs::read_to_string(&file).unwrap();
         assert!(text.starts_with("<!-- jotty: /some/project -->\n\n<!-- "));
-        let parsed = parse(&text);
-        assert_eq!(parsed.project, Some(PathBuf::from("/some/project")));
-        let bodies: Vec<_> = parsed.jots.iter().map(|j| j.body.as_str()).collect();
-        assert_eq!(bodies, ["first\n\n- a\n- b", "second", "third"]);
+        assert_eq!(parse(&text).project, Some(project.clone()));
+        assert_eq!(bodies(&open()), ["first\n\n- a\n- b", "second", "third"]);
 
-        store.jots.remove(1);
-        store.jots[1].body = "third, edited".into();
-        store.save().unwrap();
-        let reloaded = Store::open(file.clone(), PathBuf::new()).unwrap();
-        let bodies: Vec<_> = reloaded.jots.iter().map(|j| j.body.as_str()).collect();
-        assert_eq!(bodies, ["first\n\n- a\n- b", "third, edited"]);
+        assert_eq!(store.remove(1).unwrap().body, "second");
+        store.update(1, "third, edited".into()).unwrap();
+        assert_eq!(bodies(&open()), ["first\n\n- a\n- b", "third, edited"]);
 
-        store.jots.clear();
-        store.save().unwrap();
+        store.remove(0).unwrap();
+        store.remove(0).unwrap();
         assert!(!file.exists());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn global_store_merges_files_and_writes_back_to_each() {
+        let dir = temp_dir("global");
+        let (a, b) = (dir.join("a.md"), dir.join("b.md"));
+        fs::write(&a, "<!-- jotty: /p/alpha -->\n\n<!-- 2026-01-01 10:00 -->\na1\n<!-- end -->\n\n<!-- 2026-01-03 10:00 -->\na2\n<!-- end -->\n").unwrap();
+        // A legacy file without header.
+        fs::write(&b, "<!-- 2026-01-02 10:00 -->\nb1\n<!-- end -->\n").unwrap();
+
+        let open = || {
+            Store::load(
+                vec![a.clone(), b.clone()],
+                &a,
+                PathBuf::from("/p/alpha"),
+                true,
+            )
+            .unwrap()
+        };
+        let mut store = open();
+        assert_eq!(bodies(&store), ["a1", "b1", "a2"]);
+        assert_eq!(store.project_name(0), "alpha");
+        assert_eq!(store.project_name(1), "b");
+
+        store.update(1, "b1, edited".into()).unwrap();
+        let i = store.add("a3").unwrap();
+        assert_eq!(store.project_name(i), "alpha");
+        assert_eq!(
+            fs::read_to_string(&b).unwrap(),
+            "<!-- 2026-01-02 10:00 -->\nb1, edited\n<!-- end -->\n\n"
+        );
+        assert_eq!(bodies(&open())[..3], ["a1", "b1, edited", "a2"]);
+
+        store.remove(1).unwrap();
+        assert!(!b.exists());
+        assert_eq!(bodies(&open()), ["a1", "a2", "a3"]);
         fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -331,6 +468,7 @@ mod tests {
         let jot = |body: &str| Jot {
             stamp: String::new(),
             body: body.into(),
+            source: 0,
         };
         assert_eq!(
             jot("\n## Release checklist\n- a").title(),
@@ -342,12 +480,14 @@ mod tests {
 
     #[test]
     fn resolves_jot_numbers() {
-        let mut store = Store::open(PathBuf::from("/nonexistent/x.md"), PathBuf::new()).unwrap();
+        let file = PathBuf::from("/nonexistent/x.md");
+        let mut store = Store::load(vec![file.clone()], &file, PathBuf::new(), false).unwrap();
         assert!(store.resolve("1").is_err());
         for body in ["a", "b", "c"] {
             store.jots.push(Jot {
                 stamp: String::new(),
                 body: body.into(),
+                source: 0,
             });
         }
         assert_eq!(store.resolve("1").unwrap(), 0);

@@ -30,9 +30,13 @@ usage:
   jotty all            list all projects that have jots
   jotty path           print the jot file path
 
+  -g, --global         with b, ls, p, e, rm or path: use the jots of all projects
+                       (new jots still go to the current project)
+
   <i> is 1-based as shown by `ls`; negative counts from the end (-1, or `last`, is the newest).";
 
 const COMMANDS: &[&str] = &["b", "ls", "p", "e", "rm", "open", "all", "path", "help"];
+const GLOBAL_COMMANDS: &[&str] = &["b", "ls", "p", "e", "rm", "path"];
 
 fn main() -> ExitCode {
     match run() {
@@ -54,7 +58,15 @@ fn main() -> ExitCode {
 fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
-    let mut store = Store::for_cwd()?;
+    let (global, args) = split_global(&args);
+    if global
+        && !args
+            .first()
+            .is_some_and(|cmd| GLOBAL_COMMANDS.contains(cmd))
+    {
+        bail!("-g works with b, ls, p, e, rm and path; new jots always go to the current project");
+    }
+    let mut store = Store::for_cwd(global)?;
 
     match args.as_slice() {
         [] if io::stdin().is_terminal() => new_jot(&mut store),
@@ -87,7 +99,12 @@ fn run() -> Result<()> {
         }
         ["all"] => all(&store),
         ["path"] => {
-            writeln!(io::stdout(), "{}", store.file.display())?;
+            let path = if global {
+                store::config_dir()?
+            } else {
+                store.file().to_path_buf()
+            };
+            writeln!(io::stdout(), "{}", path.display())?;
             Ok(())
         }
         ["-h" | "--help" | "help"] => {
@@ -102,6 +119,20 @@ fn run() -> Result<()> {
     }
 }
 
+/// Pull out `-g`/`--global`: as the first argument, or anywhere after a command.
+/// Quick-capture text is left alone, so `jotty fix the -g flag` saves that text.
+fn split_global<'a>(args: &[&'a str]) -> (bool, Vec<&'a str>) {
+    let is_flag = |arg: &&str| matches!(*arg, "-g" | "--global");
+    match args.first() {
+        Some(first) if is_flag(first) => (true, args[1..].to_vec()),
+        Some(cmd) if COMMANDS.contains(cmd) => {
+            let rest: Vec<&str> = args.iter().copied().filter(|a| !is_flag(a)).collect();
+            (rest.len() != args.len(), rest)
+        }
+        _ => (false, args.to_vec()),
+    }
+}
+
 /// The editor and browser need a real terminal; fail fast instead of hanging in a pipe or agent shell.
 fn require_terminal(cmd: &str) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
@@ -110,18 +141,28 @@ fn require_terminal(cmd: &str) -> Result<()> {
     Ok(())
 }
 
+/// `#3 2026-10-02 14:57`, plus the project name when showing all projects.
+fn label(store: &Store, i: usize) -> String {
+    let jot = &store.jots[i];
+    if store.global {
+        format!("#{} · {} · {}", i + 1, jot.stamp, store.project_name(i))
+    } else {
+        format!("#{} · {}", i + 1, jot.stamp)
+    }
+}
+
 fn quick(store: &mut Store, text: &str) -> Result<()> {
     if text.trim().is_empty() {
         eprintln!("empty jot, nothing saved");
         return Ok(());
     }
-    store.add(text)?;
-    eprintln!("saved #{}", store.jots.len());
+    let i = store.add(text)?;
+    eprintln!("saved #{}", i + 1);
     Ok(())
 }
 
 fn new_jot(store: &mut Store) -> Result<()> {
-    let title = format!(" jotty · {} ", store.project.display());
+    let title = format!(" jotty · {} ", store.project().display());
     let mut session = Session::start();
     let result = editor::edit(&mut session.terminal, &title, "");
     drop(session);
@@ -130,8 +171,8 @@ fn new_jot(store: &mut Store) -> Result<()> {
         None => eprintln!("discarded"),
         Some(body) if body.is_empty() => eprintln!("empty jot, nothing saved"),
         Some(body) => {
-            store.add(&body)?;
-            eprintln!("saved #{}", store.jots.len());
+            let i = store.add(&body)?;
+            eprintln!("saved #{}", i + 1);
         }
     }
     Ok(())
@@ -139,19 +180,17 @@ fn new_jot(store: &mut Store) -> Result<()> {
 
 fn edit(store: &mut Store, spec: &str) -> Result<()> {
     let i = store.resolve(spec)?;
-    let jot = &store.jots[i];
-    let title = format!(" jotty · #{} · {} ", i + 1, jot.stamp);
+    let title = format!(" jotty · {} ", label(store, i));
     let mut session = Session::start();
-    let result = editor::edit(&mut session.terminal, &title, &jot.body);
+    let result = editor::edit(&mut session.terminal, &title, &store.jots[i].body);
     drop(session);
 
     match result? {
         None => eprintln!("discarded changes"),
         Some(body) if body.is_empty() => eprintln!("empty jot, #{} left unchanged", i + 1),
-        Some(body) if body == jot.body => eprintln!("no changes"),
+        Some(body) if body == store.jots[i].body => eprintln!("no changes"),
         Some(body) => {
-            store.jots[i].body = body;
-            store.save()?;
+            store.update(i, body)?;
             eprintln!("saved #{}", i + 1);
         }
     }
@@ -160,8 +199,7 @@ fn edit(store: &mut Store, spec: &str) -> Result<()> {
 
 fn remove(store: &mut Store, spec: &str) -> Result<()> {
     let i = store.resolve(spec)?;
-    let jot = &store.jots[i];
-    let label = format!("#{} {}  {}", i + 1, jot.stamp, jot.title());
+    let label = format!("{}  {}", label(store, i), store.jots[i].title());
     if io::stdin().is_terminal() {
         eprint!("delete {label}? [y/N] ");
         io::stderr().flush()?;
@@ -172,8 +210,7 @@ fn remove(store: &mut Store, spec: &str) -> Result<()> {
             return Ok(());
         }
     }
-    store.jots.remove(i);
-    store.save()?;
+    store.remove(i)?;
     eprintln!("deleted {label}");
     Ok(())
 }
@@ -187,7 +224,7 @@ fn open(store: &Store) -> Result<()> {
     let program = parts.next().context("$EDITOR is empty")?;
     let status = Command::new(program)
         .args(parts)
-        .arg(&store.file)
+        .arg(store.file())
         .status()
         .with_context(|| format!("running {editor}"))?;
     if !status.success() {
@@ -198,10 +235,20 @@ fn open(store: &Store) -> Result<()> {
 
 fn list(store: &Store) -> Result<()> {
     if store.jots.is_empty() {
-        eprintln!("no jots yet ({})", store.file.display());
+        eprintln!("{}", store.empty_message());
         return Ok(());
     }
     let width = store.jots.len().to_string().len();
+    let names: Vec<String> = (0..store.jots.len())
+        .map(|i| {
+            if store.global {
+                format!("[{}]  ", store.project_name(i))
+            } else {
+                String::new()
+            }
+        })
+        .collect();
+    let name_width = names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
     let mut out = io::stdout().lock();
     for (i, jot) in store.jots.iter().enumerate() {
         let title = jot.title();
@@ -211,7 +258,13 @@ fn list(store: &Store) -> Result<()> {
         } else {
             ""
         };
-        writeln!(out, "{:>width$}  {}  {preview}{ellipsis}", i + 1, jot.stamp)?;
+        writeln!(
+            out,
+            "{:>width$}  {}  {:<name_width$}{preview}{ellipsis}",
+            i + 1,
+            jot.stamp,
+            names[i]
+        )?;
     }
     Ok(())
 }
@@ -222,7 +275,7 @@ fn print(store: &Store, spec: Option<&str>) -> Result<()> {
         Some(spec) => vec![store.resolve(spec)?],
     };
     if selected.is_empty() {
-        eprintln!("no jots yet ({})", store.file.display());
+        eprintln!("{}", store.empty_message());
         return Ok(());
     }
 
@@ -233,8 +286,7 @@ fn print(store: &Store, spec: Option<&str>) -> Result<()> {
         if n > 0 {
             writeln!(out)?;
         }
-        let jot = &store.jots[i];
-        let text = format!("### #{} · {}\n\n{}\n", i + 1, jot.stamp, jot.body);
+        let text = format!("### {}\n\n{}\n", label(store, i), store.jots[i].body);
         match &skin {
             Some(skin) => skin.print_text(&text),
             None => write!(out, "{text}")?,
@@ -256,7 +308,7 @@ fn all(current: &Store) -> Result<()> {
         .unwrap_or(1);
     let mut out = io::stdout().lock();
     for p in projects {
-        let marker = if p.file == current.file { "*" } else { " " };
+        let marker = if p.file == current.file() { "*" } else { " " };
         let name = match &p.project {
             Some(path) => path.display().to_string(),
             None => p.file.display().to_string(),
@@ -265,4 +317,27 @@ fn all(current: &Store) -> Result<()> {
         writeln!(out, "{marker} {:>width$}  {latest}  {name}", p.count)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_flag_placement() {
+        assert_eq!(split_global(&["-g", "ls"]), (true, vec!["ls"]));
+        assert_eq!(split_global(&["ls", "-g"]), (true, vec!["ls"]));
+        assert_eq!(
+            split_global(&["p", "--global", "-1"]),
+            (true, vec!["p", "-1"])
+        );
+        assert_eq!(split_global(&["ls"]), (false, vec!["ls"]));
+        assert_eq!(split_global(&["-g"]), (true, vec![]));
+        // Quick-capture text keeps its -g.
+        assert_eq!(
+            split_global(&["fix", "the", "-g", "flag"]),
+            (false, vec!["fix", "the", "-g", "flag"])
+        );
+        assert_eq!(split_global(&["--", "-g"]), (false, vec!["--", "-g"]));
+    }
 }

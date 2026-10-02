@@ -171,8 +171,7 @@ impl Browser {
             return Ok(());
         }
         let row = self.list.selected().unwrap_or(0);
-        self.store.jots.remove(i);
-        self.store.save()?;
+        self.store.remove(i)?;
         self.refilter();
         self.select(row);
         self.status = Some(format!(" deleted #{} ", i + 1));
@@ -183,31 +182,37 @@ impl Browser {
         let Some(i) = self.selected() else {
             return Ok(());
         };
-        let jot = &self.store.jots[i];
-        let title = format!(" jotty · #{} · {} ", i + 1, jot.stamp);
-        self.status = Some(match editor::edit(terminal, &title, &jot.body)? {
-            None => " discarded changes ".into(),
-            Some(body) if body.is_empty() => format!(" empty jot, #{} left unchanged ", i + 1),
-            Some(body) if body == jot.body => " no changes ".into(),
-            Some(body) => {
-                self.store.jots[i].body = body;
-                self.store.save()?;
-                format!(" saved #{} ", i + 1)
-            }
-        });
+        let title = format!(
+            " {} · #{} · {} ",
+            self.store.project_name(i),
+            i + 1,
+            self.store.jots[i].stamp
+        );
+        self.status = Some(
+            match editor::edit(terminal, &title, &self.store.jots[i].body)? {
+                None => " discarded changes ".into(),
+                Some(body) if body.is_empty() => format!(" empty jot, #{} left unchanged ", i + 1),
+                Some(body) if body == self.store.jots[i].body => " no changes ".into(),
+                Some(body) => {
+                    self.store.update(i, body)?;
+                    format!(" saved #{} ", i + 1)
+                }
+            },
+        );
         Ok(())
     }
 
     fn new_jot(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
-        let title = format!(" jotty · {} ", self.store.project.display());
+        // New jots always go to the current project, also when browsing all projects.
+        let title = format!(" jotty · {} ", self.store.project().display());
         self.status = Some(match editor::edit(terminal, &title, "")? {
             None => " discarded ".into(),
             Some(body) if body.is_empty() => " empty jot, nothing saved ".into(),
             Some(body) => {
-                self.store.add(&body)?;
+                let i = self.store.add(&body)?;
                 self.filter.clear();
                 self.refilter();
-                format!(" saved #{} ", self.store.jots.len())
+                format!(" saved #{} ", i + 1)
             }
         });
         Ok(())
@@ -240,18 +245,20 @@ impl Browser {
             .highlight_style(Style::default().reversed());
         frame.render_stateful_widget(list, left, &mut self.list);
 
-        let project = self.store.project.file_name().map_or_else(
-            || self.store.project.display().to_string(),
-            |n| n.to_string_lossy().into_owned(),
-        );
-
         let preview = match self.selected() {
             Some(i) => {
                 let jot = &self.store.jots[i];
                 Paragraph::new(markdown(&jot.body, right.width.saturating_sub(2)))
                     .block(
-                        Block::bordered()
-                            .title(format!(" {project} · #{} · {} ", i + 1, jot.stamp).bold()),
+                        Block::bordered().title(
+                            format!(
+                                " {} · #{} · {} ",
+                                self.store.project_name(i),
+                                i + 1,
+                                jot.stamp
+                            )
+                            .bold(),
+                        ),
                     )
                     .wrap(Wrap { trim: false })
                     .scroll((self.scroll, 0))
@@ -262,8 +269,16 @@ impl Browser {
                 } else {
                     " no jots match the filter"
                 };
+                let scope = if self.store.global {
+                    "all projects".to_string()
+                } else {
+                    self.store.project().file_name().map_or_else(
+                        || self.store.project().display().to_string(),
+                        |n| n.to_string_lossy().into_owned(),
+                    )
+                };
                 Paragraph::new(msg.dim())
-                    .block(Block::bordered().title(format!(" {project} ").bold()))
+                    .block(Block::bordered().title(format!(" {scope} ").bold()))
             }
         };
         frame.render_widget(preview, right);
