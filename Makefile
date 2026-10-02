@@ -1,6 +1,6 @@
 # Makefile for jotty - TUI Jot App
 
-.PHONY: all build debug check lint test clean run install help
+.PHONY: all build debug check lint test clean run install demo help
 
 # Default target
 all: build
@@ -37,6 +37,10 @@ run:
 install: build
 	sudo cp target/release/jotty /usr/local/bin/
 
+# Record demo/demo.gif for the README (requires vhs)
+demo: build
+	vhs demo/demo.tape
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -49,4 +53,5 @@ help:
 	@echo "  clean    - Clean build artifacts"
 	@echo "  run      - Run the application"
 	@echo "  install  - Install binary to /usr/local/bin"
+	@echo "  demo     - Record demo/demo.gif (requires vhs)"
 	@echo "  help     - Show this help"

@@ -9,7 +9,7 @@ repository = "https://github.com/nicbet/jotty"
 readme = "README.md"
 keywords = ["notes", "jot", "tui", "cli", "markdown"]
 categories = ["command-line-utilities"]
-exclude = [".github/"]
+exclude = [".github/", "demo/"]
 
 [dependencies]
 ansi-to-tui = "7"

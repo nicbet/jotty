@@ -6,6 +6,8 @@
 
 Quickly jot down thoughts scoped to a project — without leaving any files behind in it.
 
+![jotty demo: quick capture, listing, and browsing jots](demo/demo.gif)
+
 Jots belong to the enclosing git repository (or the current directory outside one), so they are shared across all of a repo's subdirectories. They are stored in `~/.config/jotty/`, one markdown file per project, named after the kebab-cased path:
 
 ```
