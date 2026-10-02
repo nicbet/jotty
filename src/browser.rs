@@ -30,7 +30,7 @@ enum Action {
 
 struct Browser {
     store: Store,
-    /// Indices into `store.jots` that match `filter`, oldest first.
+    /// Indices into `store.jots` that match `filter`, newest first.
     visible: Vec<usize>,
     list: ListState,
     filter: String,
@@ -93,9 +93,10 @@ impl Browser {
     fn refilter(&mut self) {
         let needle = self.filter.to_lowercase();
         self.visible = (0..self.store.jots.len())
+            .rev()
             .filter(|&i| self.store.jots[i].body.to_lowercase().contains(&needle))
             .collect();
-        self.select(usize::MAX);
+        self.select(0);
     }
 
     fn handle(&mut self, key: KeyEvent) -> Result<Action> {
