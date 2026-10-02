@@ -1,3 +1,4 @@
+use ansi_to_tui::IntoText;
 use anyhow::Result;
 use chrono::{Datelike, Local};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -247,7 +248,7 @@ impl Browser {
         let preview = match self.selected() {
             Some(i) => {
                 let jot = &self.store.jots[i];
-                Paragraph::new(markdown(&jot.body))
+                Paragraph::new(markdown(&jot.body, right.width.saturating_sub(2)))
                     .block(
                         Block::bordered()
                             .title(format!(" {project} · #{} · {} ", i + 1, jot.stamp).bold()),
@@ -291,23 +292,11 @@ impl Browser {
     }
 }
 
-/// Light markdown styling for the preview pane: headings and code blocks stand out.
-fn markdown(body: &str) -> Text<'_> {
-    let mut in_code = false;
-    let lines: Vec<Line> = body
-        .lines()
-        .map(|line| {
-            if line.trim_start().starts_with("```") {
-                in_code = !in_code;
-                Line::from(line).dim()
-            } else if in_code {
-                Line::from(line).yellow()
-            } else if line.starts_with('#') {
-                Line::from(line).cyan().bold()
-            } else {
-                Line::from(line)
-            }
-        })
-        .collect();
-    Text::from(lines)
+/// Render markdown for the preview pane with termimad, the same renderer as `jotty p`.
+fn markdown(body: &str, width: u16) -> Text<'static> {
+    let ansi = termimad::MadSkin::default()
+        .text(body, Some(usize::from(width)))
+        .to_string();
+    ansi.into_text()
+        .unwrap_or_else(|_| Text::raw(body.to_string()))
 }
