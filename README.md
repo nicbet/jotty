@@ -45,6 +45,8 @@ Try **bold** and a list:
 
 ## Install
 
+Prebuilt binaries for Linux (x86_64, arm64), macOS (Intel, Apple Silicon) and Windows are attached to each [GitHub release](https://github.com/nicbet/jotty/releases). Or build from source:
+
 ```sh
 make install   # builds release and copies to /usr/local/bin (requires sudo)
 ```
@@ -56,3 +58,11 @@ echo 'alias j=jotty' >> ~/.zshrc
 ```
 
 Run `make help` for the other targets.
+
+## Releasing
+
+Push a version tag; CI tests on Linux/macOS/Windows, builds all targets and publishes a release:
+
+```sh
+git tag v0.1.0 && git push origin v0.1.0
+```

@@ -63,7 +63,12 @@ fn main() -> Result<()> {
 fn jot_file() -> Result<PathBuf> {
     let config = match std::env::var_os("XDG_CONFIG_HOME") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => PathBuf::from(std::env::var_os("HOME").context("$HOME is not set")?).join(".config"),
+        _ => {
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .context("$HOME is not set")?;
+            PathBuf::from(home).join(".config")
+        }
     };
     let cwd = std::env::current_dir().context("cannot determine current directory")?;
     Ok(config
