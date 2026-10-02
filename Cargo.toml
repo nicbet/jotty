@@ -12,10 +12,10 @@ categories = ["command-line-utilities"]
 exclude = [".github/", "demo/"]
 
 [dependencies]
-ansi-to-tui = "7"
+ansi-to-tui = "8"
 anyhow = "1.0.104"
 chrono = "0.4.45"
-crossterm = "0.28"
-ratatui = "0.29"
+crossterm = "0.29"
+ratatui = "0.30"
+ratatui-textarea = "0.9"
 termimad = "0.35.5"
-tui-textarea = "0.7.0"
