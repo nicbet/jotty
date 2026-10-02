@@ -1,5 +1,9 @@
 # jotty
 
+[![CI](https://github.com/nicbet/jotty/actions/workflows/ci.yml/badge.svg)](https://github.com/nicbet/jotty/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/nicbet/jotty)](https://github.com/nicbet/jotty/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Quickly jot down thoughts scoped to a project — without leaving any files behind in it.
 
 Jots belong to the enclosing git repository (or the current directory outside one), so they are shared across all of a repo's subdirectories. They are stored in `~/.config/jotty/`, one markdown file per project, named after the kebab-cased path:
@@ -88,10 +92,11 @@ The header line records the project path for `jotty all`. Editing or deleting jo
 
 ## Install
 
-Prebuilt binaries for Linux (x86_64, arm64), macOS (Intel, Apple Silicon) and Windows are attached to each [GitHub release](https://github.com/nicbet/jotty/releases). Or build from source:
+Prebuilt binaries for Linux (x86_64, arm64), macOS (Intel, Apple Silicon) and Windows are attached to each [GitHub release](https://github.com/nicbet/jotty/releases). Or build from source (Rust 1.88+):
 
 ```sh
-make install   # builds release and copies to /usr/local/bin (requires sudo)
+cargo install --git https://github.com/nicbet/jotty   # into ~/.cargo/bin
+make install   # or, from a clone: builds release and copies to /usr/local/bin (requires sudo)
 ```
 
 Optionally alias it:
@@ -109,3 +114,7 @@ Push a version tag; CI tests on Linux/macOS/Windows, builds all targets and publ
 ```sh
 git tag v0.1.0 && git push origin v0.1.0
 ```
+
+## License
+
+[MIT](LICENSE)

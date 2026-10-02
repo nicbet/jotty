@@ -2,6 +2,14 @@
 name = "jotty"
 version = "0.0.2"
 edition = "2024"
+rust-version = "1.88"
+description = "Jot down thoughts scoped to a project, without leaving any files behind in it"
+license = "MIT"
+repository = "https://github.com/nicbet/jotty"
+readme = "README.md"
+keywords = ["notes", "jot", "tui", "cli", "markdown"]
+categories = ["command-line-utilities"]
+exclude = [".github/"]
 
 [dependencies]
 ansi-to-tui = "7"
