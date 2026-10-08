@@ -19,7 +19,7 @@ cat > "$(jotty path)" <<JOTS
 Session cookie is missing \`SameSite\` — check with the auth middleware
 <!-- end -->
 
-<!-- $(date '+%Y-%m-%d') 08:55 -->
+<!-- $(date -v-1H '+%Y-%m-%d %H:%M') -->
 ## Release checklist
 1. bump the version
 2. update the changelog

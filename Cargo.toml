@@ -1,6 +1,6 @@
 [package]
 name = "jotty"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2024"
 rust-version = "1.88"
 description = "Jot down thoughts scoped to a project, without leaving any files behind in it"
