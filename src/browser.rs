@@ -204,7 +204,7 @@ impl Browser {
 
     fn new_jot(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
         // New jots always go to the current project, also when browsing all projects.
-        let title = format!(" jotty · {} ", self.store.project().display());
+        let title = format!(" jotty · {} ", self.store.project_short_name());
         self.status = Some(match editor::edit(terminal, &title, "")? {
             None => " discarded ".into(),
             Some(body) if body.is_empty() => " empty jot, nothing saved ".into(),
@@ -272,10 +272,7 @@ impl Browser {
                 let scope = if self.store.global {
                     "all projects".to_string()
                 } else {
-                    self.store.project().file_name().map_or_else(
-                        || self.store.project().display().to_string(),
-                        |n| n.to_string_lossy().into_owned(),
-                    )
+                    self.store.project_short_name()
                 };
                 Paragraph::new(msg.dim())
                     .block(Block::bordered().title(format!(" {scope} ").bold()))

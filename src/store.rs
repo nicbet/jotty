@@ -107,6 +107,15 @@ impl Store {
             .unwrap_or(Path::new(""))
     }
 
+    /// Short name of the current project, e.g. `jotty` for `~/Work/jotty`.
+    pub fn project_short_name(&self) -> String {
+        let project = self.project();
+        project.file_name().map_or_else(
+            || project.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        )
+    }
+
     /// Short name of the project jot `i` belongs to.
     pub fn project_name(&self, i: usize) -> String {
         let source = &self.sources[self.jots[i].source];
@@ -216,12 +225,19 @@ impl Store {
 
     pub fn empty_message(&self) -> String {
         if self.global {
-            "no jots anywhere yet".into()
-        } else {
-            format!("no jots yet ({})", self.file().display())
+            return NO_JOTS_ANYWHERE.into();
         }
+        let name = self.project_short_name();
+        format!(
+            "Not a single jot in {name} yet. A clean slate, or a suspiciously good memory?\n{JOT_ONE_DOWN}"
+        )
     }
 }
+
+const JOT_ONE_DOWN: &str = "Jot one down: `jotty <thought>` or `jotty new`";
+
+pub const NO_JOTS_ANYWHERE: &str = "No jots anywhere. Either you remember everything, or nothing happened yet.\n\
+    Jot one down: `jotty <thought>` or `jotty new`";
 
 fn header(source: &Source) -> String {
     match &source.project {

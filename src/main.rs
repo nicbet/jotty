@@ -7,6 +7,7 @@ use std::io::{self, IsTerminal, Read, Write};
 use std::process::{Command, ExitCode};
 
 use anyhow::{Context, Result, bail};
+use crossterm::style::Stylize;
 
 use editor::Session;
 use store::Store;
@@ -165,7 +166,7 @@ fn quick(store: &mut Store, text: &str) -> Result<()> {
 }
 
 fn new_jot(store: &mut Store) -> Result<()> {
-    let title = format!(" jotty · {} ", store.project().display());
+    let title = format!(" jotty · {} ", store.project_short_name());
     let mut session = Session::start();
     let result = editor::edit(&mut session.terminal, &title, "");
     drop(session);
@@ -252,6 +253,9 @@ fn list(store: &Store) -> Result<()> {
         })
         .collect();
     let name_width = names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
+    // Mute the timestamps, but only for a person at a terminal; pipes get plain text.
+    let color =
+        io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
     let mut out = io::stdout().lock();
     for (i, jot) in store.jots.iter().enumerate() {
         let title = jot.title();
@@ -261,11 +265,15 @@ fn list(store: &Store) -> Result<()> {
         } else {
             ""
         };
+        let stamp = if color {
+            jot.stamp.as_str().dim().to_string()
+        } else {
+            jot.stamp.clone()
+        };
         writeln!(
             out,
-            "{:>width$}  {}  {:<name_width$}{preview}{ellipsis}",
+            "{:>width$}  {stamp}  {:<name_width$}{preview}{ellipsis}",
             i + 1,
-            jot.stamp,
             names[i]
         )?;
     }
@@ -301,7 +309,7 @@ fn print(store: &Store, spec: Option<&str>) -> Result<()> {
 fn all(current: &Store) -> Result<()> {
     let projects = store::projects()?;
     if projects.is_empty() {
-        eprintln!("no jots anywhere yet");
+        eprintln!("{}", store::NO_JOTS_ANYWHERE);
         return Ok(());
     }
     let width = projects
