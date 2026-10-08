@@ -17,20 +17,20 @@ Jots belong to the enclosing git repository (or the current directory outside on
 ## Usage
 
 ```
-jotty                write a new jot in the editor
+jotty                browse jots interactively
+jotty new            write a new jot in the editor
 jotty <text...>      save <text> as a jot right away
 cmd | jotty          save piped input as a jot (e.g. `pbpaste | jotty`)
-jotty b              browse jots interactively
 jotty ls             list jots
-jotty p [i]          render all jots, or the i-th one
-jotty e [i]          edit the i-th jot (default: the newest)
+jotty show [i]       render all jots, or the i-th one
+jotty edit [i]       edit the i-th jot (default: the newest)
 jotty rm <i>         delete the i-th jot
 jotty open           open the jot file in $VISUAL / $EDITOR
 jotty all            list all projects that have jots
 jotty path           print the jot file path
 ```
 
-Add `-g` (`--global`) to `b`, `ls`, `p`, `e`, `rm` or `path` to work with the jots of **all** projects at once, oldest first, with the project shown next to each jot: `jotty ls -g`, `jotty b -g`, `jotty p -g -1`. Numbers then refer to that combined list. New jots always go to the current project, also when written from `jotty b -g`.
+Run `jotty -g`, or add `-g` (`--global`) to `ls`, `show`, `edit`, `rm` or `path` to work with the jots of **all** projects at once, oldest first, with the project shown next to each jot: `jotty -g`, `jotty ls -g`, `jotty show -g -1`. Numbers then refer to that combined list. New jots always go to the current project, also when written from `jotty -g`.
 
 `<i>` is 1-based as shown by `ls`; negative numbers count from the end, so `-1` (or `last`) is the newest jot.
 
@@ -60,7 +60,7 @@ Empty jots are not saved.
 
 Copying uses `pbcopy`, `wl-copy`, `xclip`, `xsel` or `clip.exe`, falling back to the OSC 52 terminal escape sequence (which also works over SSH in most terminals).
 
-When its output is piped, `jotty p` prints raw markdown instead of rendering it.
+When its output is piped, `jotty show` prints raw markdown instead of rendering it.
 
 ## Agent skill
 
@@ -70,7 +70,7 @@ When its output is piped, `jotty p` prints raw markdown instead of rendering it.
 ln -s "$PWD/skills/jotty" ~/.claude/skills/jotty
 ```
 
-Agents use the non-interactive commands only (`jotty -- <text>`, piped input, `ls`, `p`, `rm`, `all`); `b`, `e` and `open` refuse to run without a terminal.
+Agents use the non-interactive commands only (`jotty -- <text>`, piped input, `ls`, `show`, `rm`, `all`); `jotty` without arguments, `new`, `edit` and `open` refuse to run without a terminal.
 
 ## File format
 

@@ -38,17 +38,17 @@ EOF
 
 ```sh
 jotty ls        # one line per jot: number, timestamp, title (oldest first)
-jotty p 3       # jot #3 as raw markdown
-jotty p -1      # the newest jot (-2 the one before, ...)
-jotty p         # every jot; can be long, prefer `ls` then `p <i>`
+jotty show 3    # jot #3 as raw markdown
+jotty show -1   # the newest jot (-2 the one before, ...)
+jotty show      # every jot; can be long, prefer `ls` then `show <i>`
 jotty all       # every project that has jots, with counts and paths
 jotty ls -g     # jots of all projects, with a project column
-jotty p -g 7    # jot #7 of that combined list
+jotty show -g 7 # jot #7 of that combined list
 ```
 
-Use `-g` when the user asks about notes across projects ("what did I jot this week?"). Numbers from `ls -g` only work with `-g` (`jotty p -g 7`, `jotty rm -g 7`), and numbers from plain `ls` only without it.
+Use `-g` when the user asks about notes across projects ("what did I jot this week?"). Numbers from `ls -g` only work with `-g` (`jotty show -g 7`, `jotty rm -g 7`), and numbers from plain `ls` only without it.
 
-Jot numbers are 1-based and oldest first, exactly as `jotty ls` shows them. To search, grep the output: `jotty p | grep -n -i -B2 "timeout"`.
+Jot numbers are 1-based and oldest first, exactly as `jotty ls` shows them. To search, grep the output: `jotty show | grep -n -i -B2 "timeout"`.
 
 ## Changing or deleting jots
 
@@ -72,4 +72,4 @@ markdown body of the jot
 
 ## Do not run
 
-`jotty b`, `jotty e` and `jotty open` are interactive terminal UIs for the user; they exit with an error in a non-interactive shell. Plain `jotty` without arguments reads a jot from stdin, so only run it with input piped in.
+Plain `jotty` without arguments, `jotty new`, `jotty edit` and `jotty open` are interactive terminal UIs for the user; they exit with an error in a non-interactive shell. With input piped in, plain `jotty` saves it as a jot instead.

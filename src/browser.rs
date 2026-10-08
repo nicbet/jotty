@@ -307,7 +307,7 @@ impl Browser {
     }
 }
 
-/// Render markdown for the preview pane with termimad, the same renderer as `jotty p`.
+/// Render markdown for the preview pane with termimad, the same renderer as `jotty show`.
 fn markdown(body: &str, width: u16) -> Text<'static> {
     let ansi = termimad::MadSkin::default()
         .text(body, Some(usize::from(width)))

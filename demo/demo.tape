@@ -26,11 +26,11 @@ Sleep 1s
 # List and render
 Type "jotty ls" Sleep 400ms Enter
 Sleep 2s
-Type "jotty p 1" Sleep 400ms Enter
+Type "jotty show 1" Sleep 400ms Enter
 Sleep 2s
 
 # Browser
-Type "jotty b" Sleep 400ms Enter
+Type "jotty" Sleep 400ms Enter
 Sleep 2s
 Down Sleep 700ms
 Down Sleep 2s

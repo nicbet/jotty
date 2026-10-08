@@ -17,26 +17,28 @@ jotty - project-scoped jots, stored outside the project
 Jots belong to the enclosing git repository (or the current directory outside one).
 
 usage:
-  jotty                write a new jot (Esc / Ctrl+S save & quit, Ctrl+C discard)
+  jotty                browse, edit, delete, copy and filter jots interactively
+  jotty new            write a new jot (Esc / Ctrl+S save & quit, Ctrl+C discard)
   jotty <text...>      save <text> as a jot right away (use `jotty -- <text>` if it
                        starts with a command name or a dash)
   cmd | jotty          save piped input as a jot
-  jotty b              browse, edit, delete, copy and filter jots interactively
   jotty ls             list jots
-  jotty p [i]          render all jots, or the i-th one
-  jotty e [i]          edit the i-th jot (default: the newest)
+  jotty show [i]       render all jots, or the i-th one
+  jotty edit [i]       edit the i-th jot (default: the newest)
   jotty rm <i>         delete the i-th jot
   jotty open           open the jot file in $VISUAL / $EDITOR
   jotty all            list all projects that have jots
   jotty path           print the jot file path
 
-  -g, --global         with b, ls, p, e, rm or path: use the jots of all projects
+  -g, --global         alone or with ls, show, edit, rm or path: use the jots of all projects
                        (new jots still go to the current project)
 
   <i> is 1-based as shown by `ls`; negative counts from the end (-1, or `last`, is the newest).";
 
-const COMMANDS: &[&str] = &["b", "ls", "p", "e", "rm", "open", "all", "path", "help"];
-const GLOBAL_COMMANDS: &[&str] = &["b", "ls", "p", "e", "rm", "path"];
+const COMMANDS: &[&str] = &[
+    "new", "ls", "show", "edit", "rm", "open", "all", "path", "help",
+];
+const GLOBAL_COMMANDS: &[&str] = &["ls", "show", "edit", "rm", "path"];
 
 fn main() -> ExitCode {
     match run() {
@@ -59,42 +61,43 @@ fn run() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let (global, args) = split_global(&args);
-    if global
-        && !args
-            .first()
-            .is_some_and(|cmd| GLOBAL_COMMANDS.contains(cmd))
-    {
-        bail!("-g works with b, ls, p, e, rm and path; new jots always go to the current project");
+    if global && !args.first().is_none_or(|cmd| GLOBAL_COMMANDS.contains(cmd)) {
+        bail!(
+            "-g works alone or with ls, show, edit, rm and path; new jots always go to the current project"
+        );
     }
     let mut store = Store::for_cwd(global)?;
 
     match args.as_slice() {
-        [] if io::stdin().is_terminal() => new_jot(&mut store),
-        [] => {
+        [] if !global && !io::stdin().is_terminal() => {
             let mut text = String::new();
             io::stdin()
                 .read_to_string(&mut text)
                 .context("reading stdin")?;
             quick(&mut store, &text)
         }
-        ["b"] => {
-            require_terminal("b")?;
+        [] => {
+            require_terminal("jotty")?;
             browser::run(store)
         }
+        ["new"] => {
+            require_terminal("jotty new")?;
+            new_jot(&mut store)
+        }
         ["ls"] => list(&store),
-        ["p"] => print(&store, None),
-        ["p", i] => print(&store, Some(i)),
-        ["e"] => {
-            require_terminal("e")?;
+        ["show"] => print(&store, None),
+        ["show", i] => print(&store, Some(i)),
+        ["edit"] => {
+            require_terminal("jotty edit")?;
             edit(&mut store, "last")
         }
-        ["e", i] => {
-            require_terminal("e")?;
+        ["edit", i] => {
+            require_terminal("jotty edit")?;
             edit(&mut store, i)
         }
         ["rm", i] => remove(&mut store, i),
         ["open"] => {
-            require_terminal("open")?;
+            require_terminal("jotty open")?;
             open(&store)
         }
         ["all"] => all(&store),
@@ -136,7 +139,7 @@ fn split_global<'a>(args: &[&'a str]) -> (bool, Vec<&'a str>) {
 /// The editor and browser need a real terminal; fail fast instead of hanging in a pipe or agent shell.
 fn require_terminal(cmd: &str) -> Result<()> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        bail!("`jotty {cmd}` needs an interactive terminal");
+        bail!("`{cmd}` needs an interactive terminal");
     }
     Ok(())
 }
@@ -328,8 +331,8 @@ mod tests {
         assert_eq!(split_global(&["-g", "ls"]), (true, vec!["ls"]));
         assert_eq!(split_global(&["ls", "-g"]), (true, vec!["ls"]));
         assert_eq!(
-            split_global(&["p", "--global", "-1"]),
-            (true, vec!["p", "-1"])
+            split_global(&["show", "--global", "-1"]),
+            (true, vec!["show", "-1"])
         );
         assert_eq!(split_global(&["ls"]), (false, vec!["ls"]));
         assert_eq!(split_global(&["-g"]), (true, vec![]));
