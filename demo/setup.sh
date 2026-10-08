@@ -6,6 +6,11 @@ rm -rf /tmp/jotty-demo
 mkdir -p /tmp/jotty-demo/webapp/.git "$XDG_CONFIG_HOME/jotty"
 cd /tmp/jotty-demo/webapp || return
 
+cat > "$XDG_CONFIG_HOME/jotty/config.toml" <<'TOML'
+[[highlight]]
+pattern = '\b[a-z]+-[0-9a-f]{6}\b'
+TOML
+
 cat > "$(jotty path)" <<JOTS
 <!-- jotty: $(pwd -P) -->
 
@@ -16,7 +21,7 @@ cat > "$(jotty path)" <<JOTS
 <!-- end -->
 
 <!-- $(date -v-1d '+%Y-%m-%d') 16:40 -->
-Session cookie is missing \`SameSite\` — check with the auth middleware
+Session cookie is missing \`SameSite\` (web-4f9a2c), check with the auth middleware
 <!-- end -->
 
 <!-- $(date -v-1H '+%Y-%m-%d %H:%M') -->

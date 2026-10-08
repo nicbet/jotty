@@ -1,5 +1,6 @@
 mod browser;
 mod clipboard;
+mod config;
 mod editor;
 mod store;
 
@@ -9,6 +10,7 @@ use std::process::{Command, ExitCode};
 use anyhow::{Context, Result, bail};
 use crossterm::style::Stylize;
 
+use config::Config;
 use editor::Session;
 use store::Store;
 
@@ -34,7 +36,9 @@ usage:
   -g, --global         alone or with ls, show, edit, rm or path: use the jots of all projects
                        (new jots still go to the current project)
 
-  <i> is 1-based as shown by `ls`; negative counts from the end (-1, or `last`, is the newest).";
+  <i> is 1-based as shown by `ls`; negative counts from the end (-1, or `last`, is the newest).
+
+Settings, such as highlight patterns, go in config.toml next to the jot files (see the README).";
 
 const COMMANDS: &[&str] = &[
     "new", "ls", "show", "edit", "rm", "open", "all", "path", "help",
@@ -79,15 +83,15 @@ fn run() -> Result<()> {
         }
         [] => {
             require_terminal("jotty")?;
-            browser::run(store)
+            browser::run(store, Config::load()?)
         }
         ["new"] => {
             require_terminal("jotty new")?;
             new_jot(&mut store)
         }
-        ["ls"] => list(&store),
-        ["show"] => print(&store, None),
-        ["show", i] => print(&store, Some(i)),
+        ["ls"] => list(&store, &Config::load()?),
+        ["show"] => print(&store, None, &Config::load()?),
+        ["show", i] => print(&store, Some(i), &Config::load()?),
         ["edit"] => {
             require_terminal("jotty edit")?;
             edit(&mut store, "last")
@@ -143,6 +147,19 @@ fn require_terminal(cmd: &str) -> Result<()> {
         bail!("`{cmd}` needs an interactive terminal");
     }
     Ok(())
+}
+
+/// The markdown style for `show` and the browser preview: termimad's defaults, with code
+/// in the terminal's bright blue rather than gray on a dark bar, like other CLI tools.
+fn skin() -> termimad::MadSkin {
+    use termimad::crossterm::style::Color;
+    let mut code_block = termimad::LineStyle::default();
+    code_block.set_fg(Color::Blue);
+    termimad::MadSkin {
+        inline_code: termimad::CompoundStyle::with_fg(Color::Blue),
+        code_block,
+        ..Default::default()
+    }
 }
 
 /// `#3 2026-10-02 14:57`, plus the project name when showing all projects.
@@ -237,7 +254,7 @@ fn open(store: &Store) -> Result<()> {
     Ok(())
 }
 
-fn list(store: &Store) -> Result<()> {
+fn list(store: &Store, config: &Config) -> Result<()> {
     if store.jots.is_empty() {
         eprintln!("{}", store.empty_message());
         return Ok(());
@@ -253,7 +270,7 @@ fn list(store: &Store) -> Result<()> {
         })
         .collect();
     let name_width = names.iter().map(|n| n.chars().count()).max().unwrap_or(0);
-    // Mute the timestamps, but only for a person at a terminal; pipes get plain text.
+    // Mute timestamps and highlight patterns, but only for a person at a terminal; pipes get plain text.
     let color =
         io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none_or(|v| v.is_empty());
     let mut out = io::stdout().lock();
@@ -265,10 +282,13 @@ fn list(store: &Store) -> Result<()> {
         } else {
             ""
         };
-        let stamp = if color {
-            jot.stamp.as_str().dim().to_string()
+        let (stamp, preview) = if color {
+            (
+                jot.stamp.as_str().dim().to_string(),
+                config.highlight(&preview),
+            )
         } else {
-            jot.stamp.clone()
+            (jot.stamp.clone(), preview)
         };
         writeln!(
             out,
@@ -280,7 +300,7 @@ fn list(store: &Store) -> Result<()> {
     Ok(())
 }
 
-fn print(store: &Store, spec: Option<&str>) -> Result<()> {
+fn print(store: &Store, spec: Option<&str>, config: &Config) -> Result<()> {
     let selected: Vec<usize> = match spec {
         None => (0..store.jots.len()).collect(),
         Some(spec) => vec![store.resolve(spec)?],
@@ -291,7 +311,7 @@ fn print(store: &Store, spec: Option<&str>) -> Result<()> {
     }
 
     // Rendered for people, raw markdown for pipes (and agents).
-    let skin = io::stdout().is_terminal().then(termimad::MadSkin::default);
+    let skin = io::stdout().is_terminal().then(skin);
     let mut out = io::stdout().lock();
     for (n, &i) in selected.iter().enumerate() {
         if n > 0 {
@@ -299,7 +319,11 @@ fn print(store: &Store, spec: Option<&str>) -> Result<()> {
         }
         let text = format!("### {}\n\n{}\n", label(store, i), store.jots[i].body);
         match &skin {
-            Some(skin) => skin.print_text(&text),
+            Some(skin) => write!(
+                out,
+                "{}",
+                config.highlight(&skin.term_text(&text).to_string())
+            )?,
             None => write!(out, "{text}")?,
         }
     }

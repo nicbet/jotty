@@ -16,7 +16,7 @@ Sleep 500ms
 Show
 
 # Quick capture
-Type "jotty -- Retry logic in the sync worker swallows timeouts" Sleep 400ms Enter
+Type "jotty -- Retry logic in the sync worker swallows timeouts, see api-7c1e0b" Sleep 400ms Enter
 Sleep 1s
 
 # Piped input

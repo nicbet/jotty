@@ -62,6 +62,25 @@ Copying uses `pbcopy`, `wl-copy`, `xclip`, `xsel` or `clip.exe`, falling back to
 
 When its output is piped, `jotty show` prints raw markdown instead of rendering it.
 
+## Configuration
+
+jotty reads an optional `~/.config/jotty/config.toml` (next to the jot files; it follows `$XDG_CONFIG_HOME` too).
+
+### Highlight patterns
+
+Make things like issue IDs stand out wherever jots are shown: the `ls` titles, `jotty show` and the browser preview. Patterns are [regular expressions](https://docs.rs/regex/latest/regex/#syntax); use single quotes so backslashes stay as they are.
+
+```toml
+[[highlight]]
+pattern = '\b[a-z]+-[0-9a-f]{6}\b'   # issue IDs like abc-1f2e3d
+
+[[highlight]]
+pattern = '\bTODO\b'
+style = "bold red"                   # default: "bold yellow"
+```
+
+A style combines `bold`, `dim`, `italic`, `underline`, `reverse` with a color: `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray` or `#rrggbb`. Where patterns overlap, the first one wins. Piped output stays plain.
+
 ## Agent skill
 
 `skills/jotty` is an [Agent Skills](https://agentskills.io) skill that teaches coding agents to write and read jots with the CLI ("jot that down", "what did I note about the sync worker?"). Install jotty, then link the skill into your agent's skills folder, e.g. for Claude Code:

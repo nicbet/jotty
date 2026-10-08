@@ -10,6 +10,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, List, ListState, Paragraph, Wrap};
 
 use crate::clipboard;
+use crate::config::Config;
 use crate::editor::{self, Session};
 use crate::store::Store;
 
@@ -31,6 +32,7 @@ enum Action {
 
 struct Browser {
     store: Store,
+    config: Config,
     /// Indices into `store.jots` that match `filter`, newest first.
     visible: Vec<usize>,
     list: ListState,
@@ -40,9 +42,9 @@ struct Browser {
     status: Option<String>,
 }
 
-pub fn run(store: Store) -> Result<()> {
+pub fn run(store: Store, config: Config) -> Result<()> {
     let mut session = Session::start();
-    let mut browser = Browser::new(store);
+    let mut browser = Browser::new(store, config);
     loop {
         session.terminal.draw(|frame| browser.draw(frame))?;
         let Event::Key(key) = event::read()? else {
@@ -62,9 +64,10 @@ pub fn run(store: Store) -> Result<()> {
 }
 
 impl Browser {
-    fn new(store: Store) -> Browser {
+    fn new(store: Store, config: Config) -> Browser {
         let mut browser = Browser {
             store,
+            config,
             visible: Vec::new(),
             list: ListState::default(),
             filter: String::new(),
@@ -248,20 +251,24 @@ impl Browser {
         let preview = match self.selected() {
             Some(i) => {
                 let jot = &self.store.jots[i];
-                Paragraph::new(markdown(&jot.body, right.width.saturating_sub(2)))
-                    .block(
-                        Block::bordered().title(
-                            format!(
-                                " {} · #{} · {} ",
-                                self.store.project_name(i),
-                                i + 1,
-                                jot.stamp
-                            )
-                            .bold(),
-                        ),
-                    )
-                    .wrap(Wrap { trim: false })
-                    .scroll((self.scroll, 0))
+                Paragraph::new(markdown(
+                    &jot.body,
+                    right.width.saturating_sub(2),
+                    &self.config,
+                ))
+                .block(
+                    Block::bordered().title(
+                        format!(
+                            " {} · #{} · {} ",
+                            self.store.project_name(i),
+                            i + 1,
+                            jot.stamp
+                        )
+                        .bold(),
+                    ),
+                )
+                .wrap(Wrap { trim: false })
+                .scroll((self.scroll, 0))
             }
             None => {
                 let msg = if self.store.jots.is_empty() {
@@ -305,10 +312,12 @@ impl Browser {
 }
 
 /// Render markdown for the preview pane with termimad, the same renderer as `jotty show`.
-fn markdown(body: &str, width: u16) -> Text<'static> {
-    let ansi = termimad::MadSkin::default()
+fn markdown(body: &str, width: u16, config: &Config) -> Text<'static> {
+    let ansi = crate::skin()
         .text(body, Some(usize::from(width)))
         .to_string();
-    ansi.into_text()
+    config
+        .highlight(&ansi)
+        .into_text()
         .unwrap_or_else(|_| Text::raw(body.to_string()))
 }
