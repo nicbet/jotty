@@ -139,3 +139,8 @@ git tag v0.1.0 && git push origin v0.1.0
 ## License
 
 [MIT](LICENSE)
+
+## Trademarks
+
+Claude and Claude Code are trademarks or registered trademarks of Anthropic, PBC. jotty is an
+independent project and is not affiliated with, endorsed by or sponsored by Anthropic.
